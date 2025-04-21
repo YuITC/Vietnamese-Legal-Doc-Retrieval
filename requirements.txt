@@ -1,0 +1,7 @@
+transformers
+sentence-transformers
+datasets
+mteb
+accelerate
+tqdm
+pandas
