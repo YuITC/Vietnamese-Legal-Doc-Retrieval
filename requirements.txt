@@ -1,7 +1,10 @@
+# !conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+# !conda install faiss-gpu=1.9.0 -c pytorch -c nvidia
+
 transformers
 sentence-transformers
 datasets
 mteb
-accelerate
 tqdm
 pandas
+gradio
