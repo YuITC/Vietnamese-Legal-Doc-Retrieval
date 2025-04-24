@@ -1,17 +1,3 @@
----
-title: Vietnamese Legal Doc Retrieval
-emoji: 🏆
-colorFrom: indigo
-colorTo: pink
-sdk: docker
-pinned: false
-short_description: Fine-tuned Retrieval System for Vietnamese Legal Documents
-models:
-- YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs
-datasets:
-- YuITC/Vietnamese-Legal-Doc-Retrieval-Data
----
-
 # Vietnamese Legal Document Retrieval System
 
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/YuITC/Vietnamese-Legal-Doc-Retrieval)
