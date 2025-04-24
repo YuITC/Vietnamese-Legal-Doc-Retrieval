@@ -1,0 +1,7 @@
+__pycache__/
+.gradio/
+cache/
+data/
+models/
+demo/
+.env
