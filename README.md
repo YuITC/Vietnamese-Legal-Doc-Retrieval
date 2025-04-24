@@ -15,7 +15,7 @@ It fine-tunes **Sentence-BERT (m-BERT backbone)** on a curated Viet-law corpus, 
 
 ## 🔑 Key features
 - Step-by-step Jupyter notebooks (`step_01_…` → `step_04_…`) explaining every stage.
-- Fine-tuned **[bert-base-multilingual-cased-finetuned-VNLegalDocs](https://huggingface.co/YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs)** available on Hugging Face.
+- Fine-tuned **[google-bert/bert-base-multilingual-cased](https://huggingface.co/google-bert/bert-base-multilingual-cased)** into **[YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs](https://huggingface.co/YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs)**, which suitable for Vietnamese legal documents retrieval.
 - FAISS GPU index for sub-second vector search on >100 k documents.
 - Evaluation on **BKAI Legal Doc Retrieval** from the MTEB benchmark suite.
 - Gradio web UI + Python API.
