@@ -3,27 +3,35 @@
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/YuITC/Vietnamese-Legal-Doc-Retrieval)
 [![Model](https://img.shields.io/badge/%F0%9F%A4%97%20Model-HF%20Hub-yellow)](https://huggingface.co/YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs)
 [![Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-HF%20Hub-green)](https://huggingface.co/datasets/YuITC/Vietnamese-Legal-Doc-Retrieval-Data)
-
-A retrieval system specifically designed for Vietnamese legal documents using fine-tuned SBERT (Sentence-BERT) technology.
+[![Docker Ready](https://img.shields.io/badge/docker-ready-lightgrey)](#-docker-deployment)
 
 
 ## 📌 Overview
-This project implements a retrieval system for retrieving relevant Vietnamese legal documents based on user queries. The system uses a fine-tuned multilingual BERT model to encode legal queries and documents into a semantic vector space, allowing for retrieval based on meaning rather than just keyword matching.
+This repository implements a high-performance semantic retrieval system that returns the most relevant Vietnamese legal documents for a free-text query.  
+It fine-tunes **Sentence-BERT (m-BERT backbone)** on a curated Viet-law corpus, encodes both queries and documents into the same vector space, and performs fast ANN search via **FAISS**.
 
 ![Gradio Interface Demo](assets/gradio_demo.png)
 
 
 ## 🔑 Key features
-- Step-by-step notebook for understanding.
-- Fine-tuned SBERT model specialized for Vietnamese legal document retrieval.
-- FAISS indexing for efficient vector search.
-- Evaluation based on MTEB.
-- Interactive web interface for quick legal document search.
-- High-performance retrieval of relevant legal passages.
+- Step-by-step Jupyter notebooks (`step_01_…` → `step_04_…`) explaining every stage.
+- Fine-tuned **[bert-base-multilingual-cased-finetuned-VNLegalDocs](https://huggingface.co/YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs)** available on Hugging Face.
+- FAISS GPU index for sub-second vector search on >100 k documents.
+- Evaluation on **BKAI Legal Doc Retrieval** from the MTEB benchmark suite.
+- Gradio web UI + Python API.
+- Dockerfile for one-command GPU deployment.
 
 
 ## 🛠️ Installation & Usage
 ```bash
+# Clone repository
+git clone https://github.com/YuITC/Vietnamese-Legal-Doc-Retrieval.git
+cd Vietnamese-Legal-Doc-Retrieval
+
+# Create env
+conda create -n legal_doc_retrieval python=3.10 -y
+conda activate legal_doc_retrieval
+
 # Install dependencies
 conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
 conda install faiss-gpu=1.9.0 -c pytorch -c nvidia
@@ -37,21 +45,18 @@ The application will start a local web server with the Gradio interface, allowin
 
 
 ## 📂 Project Structure
-
 ```
 Vietnamese-Legal-Doc-Retrieval/
-├── assets/                   # Visual assets for documentation 
-│   └── gradio_demo.png       # Screenshot of the Gradio demo interface
-├── cache/                    # Cached model files
-│   └── VN-legalDocs-SBERT/   # Cached BERT model files
-├── data/                     # Dataset files
+├── assets/                   # Visual assets
+├── cache/                    # Cached model files (BERT model)
+├── data/
 │   ├── original/             # Original downloaded dataset
 │   │   ├── corpus.csv        # Raw corpus documents
-│   │   ├── train_split.csv   # Training data
-│   │   ├── val_split.csv     # Validation data
+│   │   ├── train_split.csv   # Raw training data
+│   │   ├── val_split.csv     # Raw validation data
 │   │   └── ...
-│   ├── processed/            # Processed dataset files
-│   │   ├── corpus_data.parquet  # Processed corpus for embedding
+│   ├── processed/              # Processed dataset files
+│   │   ├── corpus_data.parquet # Processed corpus for embedding
 │   │   ├── train_data.parquet  # Processed training data
 │   │   └── test_data.parquet   # Processed test data
 │   └── retrieval/            # Files for retrieval system
@@ -68,49 +73,33 @@ Vietnamese-Legal-Doc-Retrieval/
 ├── settings.py               # Configuration settings
 └── step_*_*.ipynb            # Jupyter notebooks for each step of the process
 ```
-## 💾 Dataset
-The system is trained on a Vietnamese legal document corpus containing:
-- Legal texts from various domains
-- Query-document pairs for training and evaluation
-- Processed and structured for semantic search training
-
-The dataset is available on [Hugging Face](https://huggingface.co/datasets/YuITC/Vietnamese-Legal-Doc-Retrieval-Data) (modified by me, the base dataset is cited below).
 
 
 ## 📊 Model Training Process
-The project follows a systematic approach to build the retrieval system:
+Training device configuration:
+- GPU: 01 x GPU Nvidia RTX A4000 16GB, 6144 CUDA cores
+- CPU: 12 Core vCPU AMD EPYC 7K62, 48GB RAM
+- Training time: 3:32:33(s)
 
+The project follows a systematic approach to build the retrieval system:
 1. **Data Preparation** (`step_01_Prepare_Data.ipynb`): 
    - Processes raw legal documents
    - Creates query-document pairs for training
    - Formats data for the embedding model
-
 2. **SBERT Fine-tuning** (`step_02_Finetune_SBERT.ipynb`):
    - Fine-tunes a multilingual BERT model with legal document pairs
    - Uses `CachedMultipleNegativesRankingLoss` for training
    - Optimizes for semantic similarity in legal context
-
 3. **Evaluation** (`step_03_Eval_with_MTEB.ipynb`):
    - Evaluates model performance using retrieval metrics
    - Compares with baseline models
-
 4. **Retrieval System Setup** (`step_04_Retrieval.ipynb`):
    - Creates FAISS index from document embeddings
    - Implements efficient search functionality
    - Prepares for deployment
 
 
-## 🔍 Usage Examples
-
-The system accepts natural language queries in Vietnamese related to legal topics. Example queries:
-
-- "Tội xúc phạm danh dự?" (Crimes against honor?)
-- "Quyền lợi của người lao động?" (Rights of workers?)
-- "Thủ tục đăng ký kết hôn?" (Marriage registration procedures?)
-
-
 ## 🧪 Performance
-
 The fine-tuned model was evaluated using the [MTEB benchmark](https://github.com/embeddings-benchmark/mteb) on the BKAILegalDocRetrieval dataset. Key results:
 
 | Metric       | @k  | Pre-trained model score (%) | Fine-tuned model score (%) |
@@ -141,23 +130,17 @@ The fine-tuned model was evaluated using the [MTEB benchmark](https://github.com
 |              | 20  | 0.021                       | 55.956                      |
 |              | 100 | 0.033                       | 56.172                      |
 
-- **NDCG@k (Normalized Discounted Cumulative Gain)**  
-  Measures ranking quality by evaluating the relevance of results with logarithmic position-based discounting.  
-- **MAP@k (Mean Average Precision)**  
-  Computes the average precision for each query up to rank k—precision at each relevant retrieved document—then averages across all queries.  
-- **Recall@k**  
-  The proportion of all relevant documents that are retrieved in the top k results.  
-- **Precision@k**  
-  The proportion of the top k retrieved documents that are relevant.  
-- **MRR@k (Mean Reciprocal Rank)**  
-  The average of the reciprocal of the rank position of the first relevant document across all queries. 
+- **NDCG@k (Normalized Discounted Cumulative Gain)**: Measures ranking quality by evaluating the relevance of results with logarithmic position-based discounting.  
+- **MAP@k (Mean Average Precision)**: Computes the average precision for each query up to rank k—precision at each relevant retrieved document—then averages across all queries.  
+- **Recall@k**: The proportion of all relevant documents that are retrieved in the top k results.  
+- **Precision@k**: The proportion of the top k retrieved documents that are relevant.  
+- **MRR@k (Mean Reciprocal Rank)**: The average of the reciprocal of the rank position of the first relevant document across all queries. 
 
 The model significantly outperforms baseline retrieval methods, with the main evaluation score (NDCG@10) reaching 60.4%, demonstrating strong performance on Vietnamese legal document retrieval tasks.
 
+
 ## 🐳 Docker Deployment
-
 The project includes a Docker configuration for easy deployment. The Docker image is built on `continuumio/miniconda3` and includes GPU support via PyTorch CUDA and FAISS-GPU.
-
 ```bash
 # Build the Docker image
 docker build -t vietnamese-legal-retrieval .
