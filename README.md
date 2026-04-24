@@ -1,178 +1,215 @@
-# Vietnamese Legal Document Retrieval System
+# Vietnamese Legal RAG System (Fully Fine-tuned)
 
-[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/YuITC/Vietnamese-Legal-Doc-Retrieval)
-[![Model](https://img.shields.io/badge/%F0%9F%A4%97%20Model-HF%20Hub-yellow)](https://huggingface.co/YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs)
-[![Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-HF%20Hub-green)](https://huggingface.co/datasets/YuITC/Vietnamese-Legal-Doc-Retrieval-Data)
-[![Docker Ready](https://img.shields.io/badge/docker-ready-lightgrey)](#-docker-deployment)
+An end-to-end **Vietnamese Legal RAG** project that builds and evaluates a production-style RAG stack:
 
+- Lexical retriever (BM25),
+- Dense retriever (fine-tuned bi-encoder),
+- RRF fusion + cross-encoder reranking,
+- Instruction-tuned generator (Gemma 4),
+- Multi-layer evaluation (retrieval, citation quality, semantic quality, RAGAS).
 
-## 📌 Overview
-This repository implements a high-performance semantic retrieval system that returns the most relevant Vietnamese legal documents for a free-text query.  
-It fine-tunes **Sentence-BERT (m-BERT backbone)** on a curated Viet-law corpus, encodes both queries and documents into the same vector space, and performs fast ANN search via **FAISS**.
+The repository is notebook-first and captures the full experimentation lifecycle from data preprocessing to final pipeline evaluation.
 
-![Gradio Interface Demo](assets/gradio_demo.png)
+## 1. Project Goal
 
+The core objective is to improve answer quality for Vietnamese legal RAG by:
 
-## 🔑 Key features
-- Step-by-step Jupyter notebooks (`step_01_…` → `step_04_…`) explaining every stage.
-- Fine-tuned **[google-bert/bert-base-multilingual-cased](https://huggingface.co/google-bert/bert-base-multilingual-cased)** into **[YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs](https://huggingface.co/YuITC/bert-base-multilingual-cased-finetuned-VNLegalDocs)**, which suitable for Vietnamese legal documents retrieval.
-- FAISS GPU index for sub-second vector search on >100 k documents.
-- Evaluation on **BKAI Legal Doc Retrieval** from the MTEB benchmark suite.
-- Gradio web UI + Python API.
-- Dockerfile for one-command GPU deployment.
+1. Increasing retrieval relevance (especially top-ranked passages),
+2. Grounding generation in retrieved legal text,
+3. Enforcing citation-friendly answer behavior,
+4. Measuring quality with both retrieval and generation-centric metrics.
 
+Furthermore, this project serves as a case study in building **domain-specific RAG systems** using edge models like **Gemma 4 E2B from Google DeepMind**, which was just released in **April 2026**.
 
-## 🛠️ Installation & Usage
+## 2. What This Project Contains
+
+### 2.1 Pipeline Phases
+
+The project is organized into seven notebooks:
+
+| Phase | Notebook                                    | Purpose                                                | Main Outputs                                                      |
+| ----- | ------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- |
+| 1     | `01_Preprocess_and_EDA.ipynb`               | Clean and split legal QA data                          | `data/cleaned/*.parquet`                                          |
+| 2     | `02_Finetune_Biencoder.ipynb`               | Fine-tune sentence embedding retriever                 | `models/biencoder/`                                               |
+| 3     | `03_Generate_Embeddings_and_Indexing.ipynb` | Build FAISS and BM25 artifacts                         | `data/processed/*`                                                |
+| 4     | `04_Finetune_Reranker.ipynb`                | Train cross-encoder reranker with mined hard negatives | `models/reranker/`, `data/finetune/ft_reranker_data.jsonl`        |
+| 5     | `05_Retrieval_Evaluation.ipynb`             | Retrieval ablation and RRF tuning                      | `results/eval_results.csv`                                        |
+| 6     | `06_Supervised_Finetune_Gemma4.ipynb`       | Create synthetic SFT data + tune generator             | `data/finetune/sft_data.jsonl`, `models/gemma4/` (runtime output) |
+| 7     | `07_Full_RAG_Pipeline_Evaluation.ipynb`     | Full QA pipeline + generation/RAG evaluation           | `results/phase7_*` (runtime output)                               |
+
+### 2.2 Current Repository Layout
+
+```text
+VN-LegalDoc-QA/
+├─ data/
+│  ├─ raw/
+│  ├─ cleaned/
+│  ├─ processed/
+│  └─ finetune/
+├─ models/
+│  ├─ biencoder/
+│  ├─ reranker/
+│  └─ gemma4/
+├─ notebooks/
+│  ├─ 01_Preprocess_and_EDA.ipynb
+│  ├─ 02_Finetune_Biencoder.ipynb
+│  ├─ 03_Generate_Embeddings_and_Indexing.ipynb
+│  ├─ 04_Finetune_Reranker.ipynb
+│  ├─ 05_Retrieval_Evaluation.ipynb
+│  ├─ 06_Supervised_Finetune_Gemma4.ipynb
+│  └─ 07_Full_RAG_Pipeline_Evaluation.ipynb
+└─ results/
+   └─ eval_results.csv
+```
+
+## 3. Data Overview
+
+### 3.1 Raw vs Processed Scale
+
+| Dataset                            |    Rows | Notes                               |
+| ---------------------------------- | ------: | ----------------------------------- |
+| `data/raw/corpus.csv`              | 261,597 | Raw legal corpus passages           |
+| `data/raw/train.csv`               | 119,456 | Raw question-context relevance data |
+| `data/cleaned/corpus.parquet`      | 236,199 | Cleaned corpus                      |
+| `data/cleaned/train_split.parquet` |  96,453 | Training split                      |
+| `data/cleaned/val_split.parquet`   |  10,717 | Validation split                    |
+
+### 3.2 Label Structure
+
+Relevant-document count per query (cleaned data):
+
+- Train: `{1: 87,813, 2: 8,050, 3: 590}`
+- Val: `{1: 9,757, 2: 895, 3: 65}`
+
+Most queries have one relevant passage; multi-document relevance is present and explicitly modeled.
+
+## 4. Modeling Stack
+
+### 4.1 Retriever (Dense)
+
+- Base model: `AITeamVN/Vietnamese_Embedding`
+- Fine-tuned model: `YuITC/vietnamese-embedding-vn-legal`
+- Training objective: `CachedMultipleNegativesRankingLoss`
+- Embedding dimension: **1024**
+- Index: **FAISS HNSW** (`IndexHNSWFlat`, `M=32`, `efConstruction=200`, `efSearch=64`)
+
+### 4.2 Retriever (Sparse)
+
+- BM25 via `bm25s`
+- Vietnamese tokenization via `underthesea`
+- Indexed token parquet artifacts for corpus/train/val
+
+### 4.3 Hybrid Retrieval and Reranking
+
+- Candidate pool: top-30 from BM25 and dense retriever
+- Fusion: Reciprocal Rank Fusion (RRF)
+- Tuned RRF config (Phase 5): `k=10`, weights `[BM25=0.2, Dense=1.8]`
+- Cross-encoder reranker: base `BAAI/bge-reranker-v2-m3`, tuned and published as `YuITC/bge-reranker-v2-m3-vn-legal`
+
+### 4.4 Generator
+
+- Base model: `unsloth/gemma-4-E4B-it`
+- Target model ID: `YuITC/gemma4-e4b-it-vn-legal-16bit`
+- SFT pipeline:
+  - synthetic answer generation from legal contexts,
+  - chat-format supervision data (`messages`),
+  - LoRA fine-tuning with Unsloth + TRL.
+
+## 5. Quantitative Results (Retrieval Ablation)
+
+| Metric    |   BM25 | Dense (base) | Dense (tuned) | BM25 + Dense tuned + RRF | BM25 + Dense tuned + RRF + Rerank |
+| --------- | -----: | -----------: | ------------: | -----------------------: | --------------------------------: |
+| recall@1  | 0.2729 |       0.3404 |        0.5113 |               **0.5507** |                            0.5139 |
+| ndcg@1    | 0.2846 |       0.3522 |        0.5342 |               **0.5698** |                            0.5371 |
+| mrr@1     | 0.2846 |       0.3522 |        0.5342 |               **0.5698** |                            0.5371 |
+| recall@3  | 0.4493 |       0.5244 |        0.7342 |                   0.7037 |                        **0.7375** |
+| ndcg@3    | 0.3798 |       0.4526 |        0.6497 |                   0.6470 |                        **0.6529** |
+| mrr@3     | 0.3646 |       0.4363 |        0.6341 |               **0.6387** |                            0.6373 |
+| recall@5  | 0.5242 |       0.6016 |        0.8035 |                   0.7608 |                        **0.8059** |
+| ndcg@5    | 0.4112 |       0.4850 |        0.6791 |                   0.6711 |                        **0.6820** |
+| mrr@5     | 0.3822 |       0.4543 |        0.6495 |                   0.6519 |                        **0.6526** |
+| recall@10 | 0.6149 |       0.6952 |        0.8710 |                   0.8378 |                        **0.8749** |
+| ndcg@10   | 0.4413 |       0.5159 |        0.7017 |                   0.6970 |                        **0.7051** |
+| mrr@10    | 0.3947 |       0.4668 |        0.6583 |               **0.6622** |                            0.6616 |
+
+## 6. End-to-End Evaluation Design (Phase 7)
+
+Phase 7 evaluates full RAG behavior beyond retrieval-only metrics:
+
+- **BERTScore** (Vietnamese semantic overlap proxy),
+- **Citation Accuracy** (precision/recall/F1 over cited retrieved passages),
+- **RAGAS**:
+  - Faithfulness
+  - Answer Relevancy
+  - Context Precision
+  - Context Recall
+
+Generated artifacts (when Phase 7 is executed):
+
+- `results/phase7_summary.csv`
+- `results/phase7_ragas_detailed.csv`
+- `results/phase7_rag_results_final.parquet`
+- `results/phase7_dashboard.png`
+- `results/phase7_score_distributions.png`
+
+> Note: Phase 7 requires setting `OPENAI_API_KEY` in the notebook for RAGAS components using OpenAI-backed evaluators.
+
+## 7. How to Run
+
+### 7.1 Environment
+
+- Python: **3.13** (`.python-version`, `pyproject.toml`)
+- Dependency manager: **uv** (project uses `pyproject.toml` and `uv.lock`)
+
 ```bash
-# Clone repository
-git clone https://github.com/YuITC/Vietnamese-Legal-Doc-Retrieval.git
-cd Vietnamese-Legal-Doc-Retrieval
-
-# Create env
-conda create -n legal_doc_retrieval python=3.10 -y
-conda activate legal_doc_retrieval
-
-# Install dependencies
-conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
-conda install faiss-gpu=1.9.0 -c pytorch -c nvidia
-pip install -r requirements.txt
-
-# Running the Application
-python main.py
+uv sync
+uv run jupyter lab
 ```
 
-The application will start a local web server with the Gradio interface, allowing you to enter legal queries and retrieve relevant documents.
+### 7.2 Recommended Execution Order
 
+Run notebooks in strict order:
 
-## 📂 Project Structure
-```
-Vietnamese-Legal-Doc-Retrieval/
-├── assets/                   # Visual assets
-├── cache/                    # Cached model files (BERT model)
-├── data/
-│   ├── original/             # Original downloaded dataset
-│   │   ├── corpus.csv        # Raw corpus documents
-│   │   ├── train_split.csv   # Raw training data
-│   │   ├── val_split.csv     # Raw validation data
-│   │   └── ...
-│   ├── processed/              # Processed dataset files
-│   │   ├── corpus_data.parquet # Processed corpus for embedding
-│   │   ├── train_data.parquet  # Processed training data
-│   │   └── test_data.parquet   # Processed test data
-│   └── retrieval/            # Files for retrieval system
-│       └── legal_faiss.index # FAISS index for fast vector search
-├── models/                   # Trained model files
-│   └── VN-legalDocs-SBERT/   # Fine-tuned BERT model for legal documents
-│       ├── model.safetensors # Model weights
-│       ├── config.json       # Model configuration
-│       └── checkpoint-*/     # Training checkpoints
-├── results/                  # Evaluation results
-├── Dockerfile                # Docker configuration for deployment
-├── main.py                   # Main application entry point
-├── requirements.txt          # Python dependencies
-├── settings.py               # Configuration settings
-└── step_*_*.ipynb            # Jupyter notebooks for each step of the process
-```
+1. `01_Preprocess_and_EDA.ipynb`
+2. `02_Finetune_Biencoder.ipynb`
+3. `03_Generate_Embeddings_and_Indexing.ipynb`
+4. `04_Finetune_Reranker.ipynb`
+5. `05_Retrieval_Evaluation.ipynb`
+6. `06_Supervised_Finetune_Gemma4.ipynb`
+7. `07_Full_RAG_Pipeline_Evaluation.ipynb`
 
+### 7.3 Practical Notes
 
-## 📊 Model Training Process
-Training device configuration:
-- GPU: 01 x GPU Nvidia RTX A4000 16GB, 6144 CUDA cores
-- CPU: 12 Core vCPU AMD EPYC 7K62, 48GB RAM
-- Training time: 3:32:33(s)
+- Notebooks assume a `workspace/...` path convention (Kaggle/Colab style).  
+  If running locally, keep paths consistent or adapt path roots once.
+- GPU resources are strongly recommended for Phases 2, 4, 6, and 7.
+- Large artifact generation (embeddings/models) requires substantial disk space.
 
-The project follows a systematic approach to build the retrieval system:
-1. **Data Preparation** (`step_01_Prepare_Data.ipynb`): 
-   - Processes raw legal documents
-   - Creates query-document pairs for training
-   - Formats data for the embedding model
-2. **SBERT Fine-tuning** (`step_02_Finetune_SBERT.ipynb`):
-   - Fine-tunes a multilingual BERT model with legal document pairs
-   - Uses `CachedMultipleNegativesRankingLoss` for training
-   - Optimizes for semantic similarity in legal context
-3. **Evaluation** (`step_03_Eval_with_MTEB.ipynb`):
-   - Evaluates model performance using retrieval metrics
-   - Compares with baseline models
-4. **Retrieval System Setup** (`step_04_Retrieval.ipynb`):
-   - Creates FAISS index from document embeddings
-   - Implements efficient search functionality
-   - Prepares for deployment
+## 8. Engineering Decisions
 
+The system is deliberately designed as a **hybrid retrieval + constrained generation** QA stack:
 
-## 🧪 Performance
-The fine-tuned model was evaluated using the [MTEB benchmark](https://github.com/embeddings-benchmark/mteb) on the BKAILegalDocRetrieval dataset. Key results:
+- Dense embeddings capture semantic intent in Vietnamese legal language.
+- BM25 preserves lexical precision on statutory terms and formal legal phrasing.
+- RRF stabilizes retrieval across query types.
+- Cross-encoder reranking improves top-ranked evidence quality.
+- Citation-oriented prompting enforces auditable, source-grounded answers.
+- Multi-perspective evaluation avoids overfitting to retrieval-only metrics.
 
-| Metric       | @k  | Pre-trained model score (%) | Fine-tuned model score (%) |
-|--------------|-----|-----------------------------|-----------------------------|
-| **NDCG**     | 1   | 0.007                       | 42.425                      |
-|              | 5   | 0.011                       | 57.387                      |
-|              | 10  | 0.023                       | 60.389                      |
-|              | 20  | 0.049                       | 62.160                      |
-|              | 100 | 0.147                       | 63.894                      |
-| **MAP**      | 1   | 0.007                       | 40.328                      |
-|              | 5   | 0.009                       | 52.297                      |
-|              | 10  | 0.014                       | 53.608                      |
-|              | 20  | 0.021                       | 54.136                      |
-|              | 100 | 0.033                       | 54.418                      |
-| **Recall**   | 1   | 0.007                       | 40.328                      |
-|              | 5   | 0.017                       | 70.466                      |
-|              | 10  | 0.054                       | 79.407                      |
-|              | 20  | 0.157                       | 86.112                      |
-|              | 100 | 0.713                       | 94.805                      |
-| **Precision**| 1   | 0.007                       | 42.425                      |
-|              | 5   | 0.003                       | 15.119                      |
-|              | 10  | 0.005                       | 8.587                       |
-|              | 20  | 0.008                       | 4.687                       |
-|              | 100 | 0.007                       | 1.045                       |
-| **MRR**      | 1   | 0.007                       | 42.418                      |
-|              | 5   | 0.010                       | 54.337                      |
-|              | 10  | 0.014                       | 55.510                      |
-|              | 20  | 0.021                       | 55.956                      |
-|              | 100 | 0.033                       | 56.172                      |
+## 9. Current Limitations
 
-- **NDCG@k (Normalized Discounted Cumulative Gain)**: Measures ranking quality by evaluating the relevance of results with logarithmic position-based discounting.  
-- **MAP@k (Mean Average Precision)**: Computes the average precision for each query up to rank k—precision at each relevant retrieved document—then averages across all queries.  
-- **Recall@k**: The proportion of all relevant documents that are retrieved in the top k results.  
-- **Precision@k**: The proportion of the top k retrieved documents that are relevant.  
-- **MRR@k (Mean Reciprocal Rank)**: The average of the reciprocal of the rank position of the first relevant document across all queries. 
+1. Notebook-first implementation (not yet packaged into reusable Python modules/services).
+2. End-to-end runtime can be expensive in GPU memory/time.
+3. Phase 7 RAGAS path depends on external API credentials.
 
-The model significantly outperforms baseline retrieval methods, with the main evaluation score (NDCG@10) reaching 60.4%, demonstrating strong performance on Vietnamese legal document retrieval tasks.
+## 10. Next Engineering Steps
 
+1. Refactor notebook logic into a modular package (`src/`) with CLI entry points.
+2. Add deterministic experiment configs (YAML) and run tracking.
+3. Introduce automated regression checks for retrieval/generation metrics.
+4. Add inference API + serving profile (latency, memory, throughput benchmarks).
+5. Expand legal-domain robustness tests (multi-hop, contradictory evidence, citation strictness).
 
-## 🐳 Docker Deployment
-The project includes a Docker configuration for easy deployment. The Docker image is built on `continuumio/miniconda3` and includes GPU support via PyTorch CUDA and FAISS-GPU.
-```bash
-# Build the Docker image
-docker build -t vietnamese-legal-retrieval .
+---
 
-# Run the container
-docker run -p 7860:7860 vietnamese-legal-retrieval
-```
-
-The container:
-- Uses Python 3.10 with CUDA 12.1 support
-- Installs required dependencies from requirements.txt
-- Exposes port 7860 for the Gradio web interface
-- Sets proper environment variables for security and performance
-- Runs as a non-root user for enhanced security
-
-You can access the web interface by navigating to `http://localhost:7860` after starting the container.
-
-
-## 📜 License
-This project is licensed under the MIT License – feel free to modify and distribute it as needed.
-
-
-## 🤝 Acknowledgments
-Thanks for:
-- [BKAI Legal Retrieval Dataset](https://huggingface.co/datasets/tmnam20/BKAI-Legal-Retrieval) for the original data
-- [Sentence Transformers](https://www.sbert.net/) library for the embedding model architecture
-- [Hugging Face](https://huggingface.co/) for hosting the model and dataset
-
-If you find this project useful, consider ⭐️ starring the repository or contributing to further improvements!
-
-
-## 📬 Contact
-For any questions or collaboration opportunities, feel free to reach out:
-
-📧 Email: tainguyenphu2502@gmail.com
+If you are evaluating this work for practical deployment, start with Phase 5 metrics to verify retrieval behavior, then run Phase 7 with your target compliance and citation requirements.

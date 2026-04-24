@@ -1,7 +1,15 @@
+# Python-generated files
 __pycache__/
-.gradio/
-cache/
-data/
-models/
-demo/
-.env
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# uv
+.python-version
+pyproject.toml
+uv.lock
